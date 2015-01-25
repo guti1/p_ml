@@ -1,0 +1,146 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "János Gutmayer"
+date: "Monday, January 19, 2015"
+output: html_document
+---
+
+# Introduction and background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+The goal of the project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.
+
+
+
+# Loading the data and preprocessing
+
+During the project we use the following R packages:
+  1. caret
+  2. caretEnsemble
+  3. corrgram
+  
+  
+```{r}
+library(caret)
+library(corrgram)
+library(caretEnsemble)
+library(randomForest)
+```
+
+
+In the first step we should download and load the datasets in the R workspace.
+
+```{r}
+train  <- read.csv("pml-training.csv")
+test  <- read.csv("pml-testing.csv")
+
+```
+
+During the preprocessing we examined the test set in order to see which variables can be used for the final predictions (variales without missing values in the test set). Thus the variables with missing values in the test set were removed from the traing set as well. We also removed the timestamp and other id variables. The variables, wich were origininally stored as factor variables (except of the target variable (classe)) were converted to numeric.  
+
+
+```{r}
+#dropping columns
+
+train1 <- train[,(colSums(is.na(train)) == 0)]
+test1 <- test[,(colSums(is.na(test)) == 0)]
+
+
+drop_col <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2",
+                    "cvtd_timestamp", "new_window", "num_window")
+
+train1 <- train1[,!(names(train1) %in% drop_col)]
+test1 <- test1[,!(names(test1) %in% drop_col)]
+
+keep_col <- c(names(test1), "classe")
+train1 <- train1[,names(train1) %in% keep_col]
+
+
+for (i in 1:52){
+  train1[,i] <- as.numeric(train1[,i])
+  test1[,i] <- as.numeric(test1[,i])
+
+}
+
+
+```
+
+
+# Model building and estimation
+
+In the following part we created data partitions for model training and testing. We set the random seed for the random number generation to make our work reproducible. The training set contains 75% of the original data.   
+
+```{r}
+
+set.seed(12345)
+inTrain <- createDataPartition(y = train1$classe,
+                                    p = .75,
+                                     list = FALSE)
+
+training <- train1[inTrain,]
+testing <- train1[-inTrain,]
+
+
+```
+
+In the next step we trained a "simple" random forest predictor in order to gain some insigths about the owerall predictive power, and the importance of the available variables. 
+
+
+```{r}
+rf_1 <- randomForest(classe~.,data=training, ntree=250, importance=TRUE)
+rf_1
+
+varImpPlot(rf_1)
+
+
+```
+
+Evaluating the model on the test set shows that the predicitve power (accuracy) of the model is quite high.
+
+```{r}
+confusionMatrix(predict(rf_1,newdata=testing[,-ncol(testing)]),testing$classe)
+
+```
+
+Next we train 2 more random forest variants with the caret package, each with 4-fold cross-validation, one with preprocessing (centering and scaling) and one without to compare the results. We evaluate both models on the test set.
+
+
+```{r}
+rf_2  <- train(classe~., data=training, method='rf', metric='Accuracy',
+                 trControl=trainControl(method="cv", number=4, classProbs=T))
+
+rf_2b  <- train(classe~., data=training, method='rf', metric='Accuracy',
+                 trControl=trainControl(method="cv", number=4, classProbs=T),
+               preProc = c("center","scale"))
+
+
+confusionMatrix(predict(rf_2,newdata=testing[,-ncol(testing)]),testing$classe)
+
+confusionMatrix(predict(rf_2b,newdata=testing[,-ncol(testing)]),testing$classe)
+
+
+```
+
+From the results we can see that the first random forest with 250 trees is the best performing model on the test set, however the difference is rather small across the modelvariants. 
+
+1. rf1 model (n=250): 99.53% accuracy
+2. rf2 model (4 fold cv w.o. preprocess): 99.41%
+3. rf2b model (4 fold cv with scaling and centering): 99.37%
+
+
+# Predictions
+
+Finally we applied the model for predictions.
+
+```{r}
+prediction <- predict(rf_1, newdata=test1[,-53])
+prediction
+
+```
+
+
+
+
+
+
